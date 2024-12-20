@@ -11,11 +11,18 @@ import com.google.appengine.api.datastore.*;
 import com.google.appengine.repackaged.com.google.gson.Gson;
 import com.google.appengine.api.datastore.Query.FilterOperator;
 import com.google.api.server.spi.config.ApiMethod.HttpMethod;
+import com.google.appengine.api.datastore.Query;
+import com.google.appengine.api.datastore.Query.Filter;
+import com.google.appengine.api.datastore.Query.FilterPredicate;
+import com.google.appengine.api.datastore.Query.FilterOperator;
 
 import java.util.List;
 import java.util.ArrayList;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.regex.Pattern;
 import java.util.regex.Matcher;
+
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -25,7 +32,35 @@ public class GraphQLController {
 
     // Datastore service for handling database interactions
     private final DatastoreService datastore = DatastoreServiceFactory.getDatastoreService();
-
+    @ApiMethod(name = "insertguy", httpMethod = HttpMethod.POST)
+    public Entity insertguy(Quad quad)  {
+    
+        Entity entity = new Entity("RDFTriple"); // Use automatic key generation
+        entity.setProperty("subject", quad.subject);
+        entity.setProperty("predicate", quad.predicate);
+        entity.setProperty("object", quad.object);
+        entity.setProperty("graphName", quad.graph);
+    
+        Transaction txn = datastore.beginTransaction();
+        try {
+            datastore.put(entity);
+            txn.commit();
+        } finally {
+            if (txn.isActive()) {
+                txn.rollback();
+            }
+        }
+    
+        return entity;
+    }
+    
+    // Helper Class for Quad Input
+    public static class Quad {
+        public String subject;
+        public String predicate;
+        public String object;
+        public String graph;
+    }
     @ApiMethod(name = "get_most", httpMethod = HttpMethod.GET)
 public List<RDFTriple> get_most() {
     List<RDFTriple> result = new ArrayList<>();
@@ -66,6 +101,49 @@ public List<RDFTriple> get_most() {
     return result;
 }
 
+
+@ApiMethod(name = "get_most_with_offset", httpMethod = HttpMethod.GET)
+public List<RDFTriple> getMostWithOffset(@Named("offset") int offset) {
+    List<RDFTriple> result = new ArrayList<>();
+    
+    // Datastore query with ordering by 'object'
+    Query datastoreQuery = new Query("RDFTriple").addSort("object", Query.SortDirection.ASCENDING);
+
+    
+    // Ensures the query starts from the correct offset
+    PreparedQuery pq = datastore.prepare(datastoreQuery);
+    List<Entity> entities = pq.asList(FetchOptions.Builder.withLimit(100).offset(offset));
+
+    if (entities.isEmpty()) {
+        System.out.println("No more results found in Datastore.");
+    }
+    
+    // Process each entity
+    for (Entity entity : entities) {
+        // Debugging: Log the entity to verify its contents
+        System.out.println("Entity: " + entity.getKey());
+        
+        String subject = (String) entity.getProperty("subject");
+        String predicate = (String) entity.getProperty("predicate");
+        String object = (String) entity.getProperty("object");
+        String graph = (String) entity.getProperty("graphName");
+        
+        // Null checks in case any properties are missing
+        if (subject == null || predicate == null || object == null || graph == null) {
+            System.out.println("Skipping entity with missing properties.");
+            continue; // Skip this entity if any property is missing
+        }
+        
+        // Create RDFTriple and add it to the result list
+        RDFTriple rdfTriple = new RDFTriple(subject, predicate, object, graph);
+        result.add(rdfTriple);
+    }
+    
+    // Return the result
+    return result;
+}
+
+
     
     @ApiMethod(name = "healthCheck", httpMethod = HttpMethod.GET)
 public HealthCheckResponse healthCheck() {
@@ -88,15 +166,20 @@ public static class HealthCheckResponse {
 
     // Main API endpoint for GraphQL
     @ApiMethod(name = "graphqlEndpoint", httpMethod = HttpMethod.POST)
-public GraphQLResponse graphqlEndpoint(@Named("query") String query) throws UnauthorizedException {
-    // Process the GraphQL query and execute it
-    String result = executeGraphQLQuery(query);
-    System.out.println("Received query: " + query);
-
-    GraphQLResponse response = new GraphQLResponse();
-    response.setResult(result);
-    return response;
-}
+    public GraphQLResponse graphqlEndpoint(InputStream requestBody) throws UnauthorizedException {
+        String query;
+        try {
+            query = new Gson().fromJson(new InputStreamReader(requestBody), Map.class).get("query").toString();
+        } catch (Exception e) {
+            throw new UnauthorizedException("Invalid GraphQL query");
+        }
+    
+        String result = executeGraphQLQuery(query);
+        GraphQLResponse response = new GraphQLResponse();
+        response.setResult(result);
+        return response;
+    }
+    
 
 public static class GraphQLResponse {
     private String result;
@@ -149,9 +232,16 @@ public static class GraphQLResponse {
             datastoreQuery.setFilter(new Query.FilterPredicate("graphName", FilterOperator.EQUAL, graphValue));
         }
 
-        // Execute the Datastore query and return the results
-        System.out.println("Datastore query: " + datastoreQuery);
-        return executeQuery(datastoreQuery);
+        String offsetValue = extractQueryParameter(query, "offset");
+        int offset = offsetValue != null ? Integer.parseInt(offsetValue) : 0;
+
+        // Set limit to 100 and apply offset
+        //FetchOptions fetchOptions = FetchOptions.Builder.withLimit(100).offset(offset);
+
+        // Execute the Datastore query with pagination options
+        System.out.println("Datastore query: " + datastoreQuery + ", Offset: " + offset);
+        
+        return executeQueryWithLimitAndOffset(datastoreQuery, 100, offset);
     }
 
     // Extract a parameter value from the GraphQL query string using regex
@@ -163,19 +253,30 @@ public static class GraphQLResponse {
     }
 
     // Execute the query on Datastore and fetch RDFTriples
-    private List<RDFTriple> executeQuery(Query q) {
+    private List<RDFTriple> executeQueryWithLimitAndOffset(Query q, int limit, int offset) {
         List<RDFTriple> rdfTriples = new ArrayList<>();
         PreparedQuery pq = datastore.prepare(q);
+    
+        // Apply limit and offset directly in the query iteration
+        int currentIndex = 0;
         for (Entity result : pq.asIterable()) {
-            String subject = (String) result.getProperty("subject");
-            String predicate = (String) result.getProperty("predicate");
-            String object = (String) result.getProperty("object");
-            String graph = (String) result.getProperty("graph");
-            rdfTriples.add(new RDFTriple(subject, predicate, object, graph));
+            if (currentIndex >= offset && currentIndex < offset + limit) {
+                String subject = (String) result.getProperty("subject");
+                String predicate = (String) result.getProperty("predicate");
+                String object = (String) result.getProperty("object");
+                String graph = (String) result.getProperty("graphName");
+                rdfTriples.add(new RDFTriple(subject, predicate, object, graph));
+            }
+            currentIndex++;
+    
+            // Stop processing if we reach the limit
+            if (currentIndex >= offset + limit) {
+                break;
+            }
         }
         return rdfTriples;
     }
-
+    
     // RDFTriple class to represent the data structure
     public static class RDFTriple {
         private String subject;
