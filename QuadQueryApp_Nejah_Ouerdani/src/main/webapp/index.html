@@ -77,6 +77,41 @@
 </head>
 <body>
   <script>
+     let userLoggedIn = false; // Flag to check login status
+
+    // Initialize Google Sign-In
+    function initializeGoogleSignIn() {
+      google.accounts.id.initialize({
+        client_id: "637726224392-33s707skad8om8pemv0974c83gvhhpmc.apps.googleusercontent.com", // Replace with your Google client ID
+        callback: handleCredentialResponse,
+      });
+      google.accounts.id.renderButton(
+        document.getElementById("googleSignInButton"), // Element to render button
+        { theme: "outline", size: "large" } // Button customization
+      );
+    }
+
+    // Callback function to handle sign-in response
+    function handleCredentialResponse(response) {
+      // Decode ID token to retrieve user information (optional)
+      const userDetails = parseJwt(response.credential);
+      console.log("User Info:", userDetails);
+
+      userLoggedIn = true; // Set the login flag to true
+      m.redraw(); // Redraw Mithril components to update UI
+    }
+
+    // Helper function to parse JWT token (optional)
+    function parseJwt(token) {
+      try {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        return JSON.parse(atob(base64));
+      } catch (error) {
+        console.error("Error parsing token:", error);
+        return null;
+      }
+    }
     let results = [];
     let totalMatches = 0;
     let currentPage = 1;
@@ -96,15 +131,48 @@
               alt: "uni Logo"
             })
           ]),
+        m(".section", [
+          m("h2", "Login to Push Quad"),
+          m("div#googleSignInButton"), // Placeholder for Google Sign-In button
+          m("p", userLoggedIn ? "You are logged in!" : "Please log in to push quads."),
+        ]),
           m(".section", [
-            m("h2", "Query by Quad Pattern"),
-            m("div", [
-              m("input[type=text]", { placeholder: "Subject", oninput: (e) => queryParams.subject = e.target.value }),
-              m("input[type=text]", { placeholder: "Predicate", oninput: (e) => queryParams.predicate = e.target.value }),
-              m("input[type=text]", { placeholder: "Object", oninput: (e) => queryParams.object = e.target.value }),
-              m("input[type=text]", { placeholder: "Graph Name", oninput: (e) => queryParams.graph = e.target.value }),
-              m("button.button", { onclick: fetchData }, "Run Query")
-            ])
+          m("h2", "Query or push by Quad Pattern"),
+          m("div", [
+            m("input[type=text]", { 
+              placeholder: "Subject", 
+              oninput: (e) => { 
+                queryParams.subject = e.target.value; 
+                m.redraw(); // Trigger Mithril redraw to re-evaluate button state
+              } 
+            }),
+            m("input[type=text]", { 
+              placeholder: "Predicate", 
+              oninput: (e) => { 
+                queryParams.predicate = e.target.value; 
+                m.redraw();
+              } 
+            }),
+            m("input[type=text]", { 
+              placeholder: "Object", 
+              oninput: (e) => { 
+                queryParams.object = e.target.value; 
+                m.redraw();
+              } 
+            }),
+            m("input[type=text]", { 
+              placeholder: "Graph Name", 
+              oninput: (e) => { 
+                queryParams.graph = e.target.value; 
+                m.redraw();
+              } 
+            }),
+            m("button.button", { onclick: fetchData }, "Run Query"),
+            m("button.button", { 
+              onclick: pushQuad, 
+              disabled: !(isFormComplete() && userLoggedIn) // Disable button if form is incomplete
+            }, "Push Quad")
+          ])
           ]),
           m(".section", [
             m("p", `Showing results for page ${currentPage}.`),
@@ -153,8 +221,8 @@
       loadList: function() {
         return m.request({
             method: "GET",
-            //url: "_ah/api/graphql/v1/get_most/"
-            url: "_ah/api/graphql/v1/rdftriplecollection" 
+            //url: "_ah/api/graphql/v1/rdftriplecollection" 
+            url: `_ah/api/graphql/v1/rdftriplecollection?offset=${currentPage}`,
         })
         .then(function(result) {
             rdflist.list = result.items; // Properly assign fetched data
@@ -163,7 +231,7 @@
       }
     }
 
-    // Function to fetch RDFTriples using the GET endpoint
+      // Function to fetch RDFTriples using the GET endpoint
     function fetchData() {
       rdflist.loadList().then(function() {
         results = rdflist.list;
@@ -173,30 +241,44 @@
     }
 
 
-    function executeGraphQLQuery(query) {
-  m.request({
-    method: "POST",
-    url: "_ah/api/graphql/v1/graphqlEndpoint/",
-    params: { query: query }
+    
+    function pushQuad() {
+  const quad = {
+    subject: queryParams.subject,
+    predicate: queryParams.predicate,
+    object: queryParams.object,
+    graph: queryParams.graph
+  };
+
+  fetch('_ah/api/graphql/v1/entity', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      // Add authentication headers if required
+    },
+    body: JSON.stringify(quad)
   })
-    .then(function(data) {
-      if (data.result) {
-        const parsedResult = JSON.parse(data.result);
-        results = parsedResult.results || [];
-        totalMatches = parsedResult.totalMatches || 0;
+    .then(response => {
+      if (response.ok) {
+        return response.json().then(data => {
+          console.log('Successfully pushed quad:', data);
+          alert('Push Success: Quad added successfully!');
+        });
       } else {
-        results = [];
-        totalMatches = 0;
+        return response.json().then(error => {
+          console.error('Error pushing quad:', error);
+          alert('Push Failed: Unable to add quad.');
+        });
       }
-      m.redraw();
     })
-    .catch(function(error) {
-      console.error("GraphQL query execution failed:", error);
-      results = [];
-      totalMatches = 0;
-      m.redraw();
+    .catch(error => {
+      console.error('Error pushing quad:', error);
+      alert('Push Failed: An unexpected error occurred.');
     });
 }
+  function isFormComplete() {
+  return queryParams.subject && queryParams.predicate && queryParams.object && queryParams.graph;
+}   
 
 function buildGraphQLQuery() {
   let queryParts = [];
@@ -204,12 +286,69 @@ function buildGraphQLQuery() {
   if (queryParams.predicate) queryParts.push(`predicate="${queryParams.predicate}"`);
   if (queryParams.object) queryParts.push(`object="${queryParams.object}"`);
   if (queryParams.graph) queryParts.push(`graphName="${queryParams.graph}"`);
-  return `{ RDFTriple(${queryParts.join(", ")}) { subject, predicate, object, graphName } }`;
+
+  const offset = 100 * (currentPage - 1);
+  queryParts.push(`offset=${offset}`);
+
+  const query = `{ RDFTriple(${queryParts.join(", ")}) { subject, predicate, object, graphName } }`;
+  console.log("Generated GraphQL Query:", query); // Debugging output
+  return query;
 }
 
+
 /*function fetchData() {
-  executeGraphQLQuery(buildGraphQLQuery());
+  const query = buildGraphQLQuery();
+  executeGraphQLQuery(query);
 }*/
+
+function executeGraphQLQuery(query) {
+  // Prepare the GraphQL query as part of the JSON body
+  const requestBody = {
+    query: query, // Ensure the query string is well-formed
+  };
+
+  console.log("Request Body:", JSON.stringify(requestBody));
+
+  m.request({
+    method: "POST",
+    url: "_ah/api/graphql/v1/graphqlEndpoint/", // Ensure this URL is correct
+    body: requestBody, // Pass the object directly
+    headers: {
+      "Content-Type": "application/json", // Ensure the content type matches
+    },
+  })
+    .then(function (data) {
+      console.log("GraphQL Query Response:", data); // Log the response to inspect it
+      if (data.errors) {
+        console.error("GraphQL Errors:", data.errors); // Log server-side GraphQL errors
+      } else if (data.data) {
+        results = data.data.RDFTriple || []; // Adjust this based on your GraphQL schema
+        totalMatches = results.length; // Example for matches; adjust as needed
+        console.log("Results:", results);
+      } else {
+        console.warn("Unexpected Response Format:", data);
+      }
+      m.redraw();
+    })
+    .catch(function (error) {
+      console.error("GraphQL query execution failed:", error.message || error, error);
+    });
+}
+
+/* Example query
+const query = `
+  {
+    RDFTriple(offset: 0) {
+      subject
+      predicate
+      object
+      graphName
+    }
+  }
+`;
+executeGraphQLQuery(query);*/
+
+
 
     // Function to handle page change for next
     function nextPage() {
@@ -239,8 +378,11 @@ function buildGraphQLQuery() {
 
 
 
+   
     // Initialize Mithril app
     m.mount(document.body, QuadQueryApp);
+      // Load Google Sign-In on page load
+  document.addEventListener("DOMContentLoaded", initializeGoogleSignIn);
   </script>
 </body>
 </html>
