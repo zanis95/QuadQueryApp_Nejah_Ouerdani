@@ -17,7 +17,3 @@ The goal is to develop a simple Linked Data Fragment (LDF) server capable of pro
 - **Quad Pattern Querying via REST API**: Pending implementation.
 - **Pagination Efficiency**: Requires improvements to support constant-time pagination.
 
-### Front-End Development
-The front-end is implemented using JS-Mithril.
----
-For further instructions or deployment steps, please consult the development documentation or project maintainers.
