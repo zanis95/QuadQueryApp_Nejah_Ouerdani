@@ -1,4 +1,4 @@
-# QuadQueryApp_Nejah_Ouerdani
+# QuadQueryApp_Nejah_Ouerdani by Yanis Ouerdani and Dhaker Iyad Nejah
 
 ## Objective
 The goal is to develop a simple Linked Data Fragment (LDF) server capable of processing any Quad Pattern Query as Wikidata LDF. This project is implemented as an App Engine application on Google Cloud.
