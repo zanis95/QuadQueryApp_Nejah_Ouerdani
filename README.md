@@ -9,7 +9,7 @@ The goal is to develop a simple Linked Data Fragment (LDF) server capable of pro
 - **REST API**: Provides a RESTful API to:
   - Insert new quads (authentication required).
   - Retrieve quads using quad patterns (**not accomplished**).
-- **Pagination**: Basic handling implemented but constant-time pagination is **not accomplished**.
+- **Pagination**: is **not accomplished** becase the REST API has a bug.
 - **Front-End**: Built with JS-Mithril.
 - **Design Reference**: The application UI and API behavior mimic [Wikidata's Query Service](https://query.wikidata.org/bigdata/ldf).
 
