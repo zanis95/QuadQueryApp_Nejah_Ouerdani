@@ -1,0 +1,13 @@
+indexes:
+- kind: "RDFTriple"
+  properties:
+  - name: "subject"
+  - name: "predicate"
+- kind: "RDFTriple"
+  properties:
+  - name: "object"
+  - name: "predicate"
+- kind: "RDFTriple"
+  properties:
+  - name: "subject"
+  - name: "object"

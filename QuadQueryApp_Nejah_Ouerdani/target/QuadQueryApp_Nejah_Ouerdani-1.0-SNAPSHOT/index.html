@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>QuadQueryApp</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.8.0/css/bulma.min.css">
+  <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://unpkg.com/mithril/mithril.js"></script>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      background-color: #f8f8f8;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 30px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+    }
+
+    header img {
+      height: 50px;
+    }
+
+    h1 {
+      font-size: 2rem;
+      color: #333;
+    }
+
+    .button {
+      background-color: #3273dc;
+      color: white;
+      border-radius: 4px;
+      padding: 10px 20px;
+      font-size: 1rem;
+    }
+
+    .button:hover {
+      background-color: #276cda;
+    }
+
+    .section {
+      margin: 20px 0;
+      padding: 20px;
+      border-radius: 8px;
+      background-color: white;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    input[type="text"] {
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    input[type="text"]:focus {
+      border-color: #3273dc;
+      outline: none;
+    }
+
+    .results p {
+      margin: 5px 0;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    let results = [];
+    let totalMatches = 0;
+    let currentPage = 1;
+    let apiStatusMessage = "";
+
+    const QuadQueryApp = {
+      oninit: function() {
+        fetchData(); // Load initial data
+        checkApiHealth();
+      },
+      view: function() {
+        return m("div", [
+          m("header", [
+            m("h1", "Graph Query App"),
+            m("img", {
+              src: "https://madoc.univ-nantes.fr/pluginfile.php/2/core_admin/logo/0x200/1727681200/Logotype_NantesUniversit%C3%A9_Vecto%20-%20web.png",
+              alt: "uni Logo"
+            })
+          ]),
+          m(".section", [
+            m("h2", "Query by Quad Pattern"),
+            m("div", [
+              m("input[type=text]", { placeholder: "Subject", oninput: (e) => queryParams.subject = e.target.value }),
+              m("input[type=text]", { placeholder: "Predicate", oninput: (e) => queryParams.predicate = e.target.value }),
+              m("input[type=text]", { placeholder: "Object", oninput: (e) => queryParams.object = e.target.value }),
+              m("input[type=text]", { placeholder: "Graph Name", oninput: (e) => queryParams.graph = e.target.value }),
+              m("button.button", { onclick: fetchData }, "Run Query")
+            ])
+          ]),
+          m(".section", [
+            m("p", `Showing results for page ${currentPage}.`),
+            m("button.button", { onclick: nextPage }, "Next Page")
+          ]),
+          m(".section.results", [
+          results.length === 0
+            ? m("p", "No results found")
+            : m("table.table.is-fullwidth.is-striped.is-hoverable", [
+                m("thead", [
+                  m("tr", [
+                    m("th", "Subject"),
+                    m("th", "Predicate"),
+                    m("th", "Object"),
+                    m("th", "Graph Name")
+                  ])
+                ]),
+                m("tbody", results.map((result, index) =>
+                  m("tr", { key: index }, [
+                    m("td", result.subject),
+                    m("td", result.predicate),
+                    m("td", result.object),
+                    m("td", result.graph)
+                  ])
+                ))
+              ])
+        ]),
+          // Add the API status message here
+          m(".section", [
+            m("p", apiStatusMessage || "Checking API status...")
+          ])
+        ]);
+      }
+    };
+
+    const queryParams = {
+      subject: "",
+      predicate: "",
+      object: "",
+      graph: ""
+    };
+
+     
+    var rdflist = {
+      list: [],
+      loadList: function() {
+        return m.request({
+            method: "GET",
+            //url: "_ah/api/graphql/v1/get_most/"
+            url: "_ah/api/graphql/v1/rdftriplecollection" 
+        })
+        .then(function(result) {
+            rdflist.list = result.items; // Properly assign fetched data
+            console.log("got:", result.items);
+        })
+      }
+    }
+
+    // Function to fetch RDFTriples using the GET endpoint
+    function fetchData() {
+      rdflist.loadList().then(function() {
+        results = rdflist.list;
+        totalMatches = results.length || 0; 
+        m.redraw();
+      });
+    }
+
+
+    function executeGraphQLQuery(query) {
+  m.request({
+    method: "POST",
+    url: "_ah/api/graphql/v1/graphqlEndpoint/",
+    params: { query: query }
+  })
+    .then(function(data) {
+      if (data.result) {
+        const parsedResult = JSON.parse(data.result);
+        results = parsedResult.results || [];
+        totalMatches = parsedResult.totalMatches || 0;
+      } else {
+        results = [];
+        totalMatches = 0;
+      }
+      m.redraw();
+    })
+    .catch(function(error) {
+      console.error("GraphQL query execution failed:", error);
+      results = [];
+      totalMatches = 0;
+      m.redraw();
+    });
+}
+
+function buildGraphQLQuery() {
+  let queryParts = [];
+  if (queryParams.subject) queryParts.push(`subject="${queryParams.subject}"`);
+  if (queryParams.predicate) queryParts.push(`predicate="${queryParams.predicate}"`);
+  if (queryParams.object) queryParts.push(`object="${queryParams.object}"`);
+  if (queryParams.graph) queryParts.push(`graphName="${queryParams.graph}"`);
+  return `{ RDFTriple(${queryParts.join(", ")}) { subject, predicate, object, graphName } }`;
+}
+
+/*function fetchData() {
+  executeGraphQLQuery(buildGraphQLQuery());
+}*/
+
+    // Function to handle page change for next
+    function nextPage() {
+      currentPage++;
+      fetchData();
+    }
+
+     // Function to check the API health status
+     function checkApiHealth() {
+  m.request({
+    method: "GET",
+    url: "_ah/api/graphql/v1/healthCheck"
+  })
+  .then(function(data) {
+    if (data.message === "OK") {
+      apiStatusMessage = "API is deployed and working!!!";
+    } else {
+      apiStatusMessage = "API deployment failed.";
+    }
+    m.redraw();
+  })
+  .catch(function() {
+    apiStatusMessage = "Error connecting to the API.";
+    m.redraw();
+  });
+}
+
+
+
+    // Initialize Mithril app
+    m.mount(document.body, QuadQueryApp);
+  </script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+foo/GraphQLController.class
+foo/GraphQLController$HealthCheckResponse.class
+foo/GraphQLController$RDFTriple.class
+foo/RDFTripleServlet.class
+foo/GraphQLController$GraphQLResponse.class
